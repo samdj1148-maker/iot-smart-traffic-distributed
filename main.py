@@ -1,88 +1,35 @@
 import json
-from pathlib import Path
 
-# Simple simulation of distributed smart traffic control using IoT sensor data
-# Reads input.txt (JSON) with intersections and sensor readings, computes signal timings, writes output.txt
+def load_sensors(filename):
+    with open(filename) as f:
+        data = json.load(f)
+    return data
 
-
-def compute_cycle(intersection_id, sensors):
-    # sensors: dict with approach -> vehicle_count, emergency, pedestrian_wait
-    base_green = 20  # seconds
-    max_green = 90
-    min_green = 10
-
-    allocations = {}
-    notes = []
-
-    # Priority to emergency, then queue length, then pedestrian
-    for approach, data in sensors.items():
-        veh = max(0, int(data.get("vehicle_count", 0)))
-        emerg = bool(data.get("emergency", False))
-        ped = int(data.get("pedestrian_wait", 0))
-
-        score = veh + (50 if ped > 0 else 0) + (1000 if emerg else 0)
-        allocations[approach] = {
-            "vehicles": veh,
-            "ped_waiting": ped,
-            "emergency": emerg,
-            "priority_score": score,
+def distribute_processing(sensor_data):
+    results = {}
+    for intersection, sensors in sensor_data.items():
+        vehicle_count = sensors['vehicles']
+        queue_length = sensors['queue_length']
+        green_time = min(120, max(30, queue_length * 2 + vehicle_count // 2))
+        results[intersection] = {
+            'vehicle_count': vehicle_count,
+            'queue_length': queue_length,
+            'recommended_green_time': green_time,
+            'bottleneck': queue_length > 5 or vehicle_count > 40
         }
-        if emerg:
-            notes.append(f"{intersection_id}:{approach} emergency priority")
+    return results
 
-    # Normalize timings proportional to score (ensure at least min_green)
-    total_score = sum(max(1, a["priority_score"]) for a in allocations.values())
-    cycle_time = 120  # seconds per cycle
+def write_output(results, filename):
+    with open(filename, 'w') as f:
+        for intersection, res in results.items():
+            f.write(f"Intersection {intersection}:\n")
+            f.write(f"  Vehicles: {res['vehicle_count']}\n")
+            f.write(f"  Queue Length: {res['queue_length']}\n")
+            f.write(f"  Recommended Green Time: {res['recommended_green_time']} seconds\n")
+            f.write(f"  Bottleneck: {'Yes' if res['bottleneck'] else 'No'}\n\n")
+    print("Results written to", filename)
 
-    for approach, a in allocations.items():
-        share = max(1, a["priority_score"]) / total_score
-        green = int(min(max_green, max(min_green, round(share * cycle_time))))
-        a["green_seconds"] = green
-
-    # Amber and all-red fixed
-    amber = 3
-    all_red = 1
-
-    return {
-        "intersection": intersection_id,
-        "cycle_seconds": cycle_time,
-        "amber_seconds": amber,
-        "all_red_seconds": all_red,
-        "plans": allocations,
-        "notes": notes,
-    }
-
-
-def main():
-    in_path = Path("input.txt")
-    out_path = Path("output.txt")
-
-    if not in_path.exists():
-        raise FileNotFoundError("input.txt not found")
-
-    data = json.loads(in_path.read_text())
-
-    results = {
-        "policy": "distributed_priority_v1",
-        "intersections": [],
-    }
-
-    for inter_id, sensors in data.get("intersections", {}).items():
-        results["intersections"].append(compute_cycle(inter_id, sensors))
-
-    # Simple coordination: align max priority approaches start times
-    max_scores = {}
-    for inter in results["intersections"]:
-        max_appr = max(inter["plans"].items(), key=lambda kv: kv[1]["priority_score"])[0]
-        max_scores[inter["intersection"]] = max_appr
-    results["coordination"] = {
-        "primary_approaches": max_scores,
-        "note": "Align start-of-green for listed approaches across intersections",
-    }
-
-    out_path.write_text(json.dumps(results, indent=2))
-    print("Wrote output.txt with computed signal plans")
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    sensors = load_sensors('input.txt')
+    control = distribute_processing(sensors)
+    write_output(control, 'output.txt')
