@@ -1,0 +1,5 @@
+{
+  "A": {"vehicles": 50, "queue_length": 9},
+  "B": {"vehicles": 15, "queue_length": 2},
+  "C": {"vehicles": 38, "queue_length": 8}
+}
